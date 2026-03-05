@@ -16,7 +16,12 @@ function f_sshdconfig {
   echo "[$SCRIPT_COUNT] $SSHDFILE"
 
   awk '$5 >= 3071' /etc/ssh/moduli > /etc/ssh/moduli.tmp
-  mv /etc/ssh/moduli.tmp /etc/ssh/moduli
+  if [ -s /etc/ssh/moduli.tmp ]; then
+    mv /etc/ssh/moduli.tmp /etc/ssh/moduli
+  else
+    rm -f /etc/ssh/moduli.tmp
+    echo "Warning: no moduli with sufficient bit length found, keeping original."
+  fi
 
   if grep -q '^Include' /etc/ssh/sshd_config; then
     local INCLUDEDIR
@@ -80,6 +85,7 @@ function f_sshdconfig {
   _sshd_set_option "AllowTcpForwarding" "no" "$SSHDCONF"
   _sshd_set_option "AllowAgentForwarding" "no" "$SSHDCONF"
   _sshd_set_option "TCPKeepAlive" "no" "$SSHDCONF"
+  _sshd_set_option "HostKeyAlgorithms" "ssh-ed25519,rsa-sha2-512,rsa-sha2-256" "$SSHDCONF"
 
   if ! grep -q "^AllowGroups" "$SSHDCONF" 2> /dev/null; then
     echo "AllowGroups $SSH_GRPS" >> "$SSHDCONF"

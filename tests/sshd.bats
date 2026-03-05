@@ -202,6 +202,11 @@ load test_helper
   [ "$status" -eq 0 ]
 }
 
+@test "Verify OpenSSH HostKeyAlgorithms" {
+  run sshdConfig '^HostKeyAlgorithms ssh-ed25519,rsa-sha2-512,rsa-sha2-256$'
+  [ "$status" -eq 0 ]
+}
+
 @test "Verify moduli sizes" {
   run moduliSize
   [ "$status" -eq 0 ]

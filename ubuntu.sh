@@ -38,7 +38,15 @@ function main {
   PINGBIN="$(command -v ping)"
   WBIN="$(command -v w)"
   WHOBIN="$(command -v who)"
-  if lsb_release -i 2>/dev/null | grep -q 'Ubuntu'; then
+  if [ -f /etc/os-release ]; then
+    # shellcheck disable=1091
+    . /etc/os-release
+    case "$ID" in
+      ubuntu) DISTRO="ubuntu" ;;
+      debian) DISTRO="debian" ;;
+      *) DISTRO="" ;;
+    esac
+  elif lsb_release -i 2>/dev/null | grep -q 'Ubuntu'; then
     DISTRO="ubuntu"
   elif lsb_release -i 2>/dev/null | grep -q 'Debian'; then
     DISTRO="debian"
