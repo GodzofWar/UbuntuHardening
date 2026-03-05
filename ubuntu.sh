@@ -135,6 +135,8 @@ function main {
   readonly SSHFILE
   readonly SSH_GRPS
   readonly SSH_PORT
+  readonly SSH_PUBKEY
+  readonly SSH_PUBKEY_USER
   readonly SYSCTL
   readonly SYSCTL_CONF
   readonly SYSTEMCONF

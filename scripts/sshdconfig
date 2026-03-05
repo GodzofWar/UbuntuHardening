@@ -91,6 +91,34 @@ function f_sshdconfig {
     echo "AllowGroups $SSH_GRPS" >> "$SSHDCONF"
   fi
 
+  if [[ -n "$SSH_PUBKEY" && -n "$SSH_PUBKEY_USER" ]]; then
+    local USER_HOME
+    USER_HOME="$(getent passwd "$SSH_PUBKEY_USER" | cut -d: -f6)"
+
+    if [[ -n "$USER_HOME" ]]; then
+      local SSH_DIR="${USER_HOME}/.ssh"
+      local AUTH_KEYS="${SSH_DIR}/authorized_keys"
+
+      mkdir -p "$SSH_DIR"
+      chmod 0700 "$SSH_DIR"
+
+      if ! grep -qF "$SSH_PUBKEY" "$AUTH_KEYS" 2>/dev/null; then
+        echo "$SSH_PUBKEY" >> "$AUTH_KEYS"
+      fi
+
+      chmod 0600 "$AUTH_KEYS"
+      chown -R "$SSH_PUBKEY_USER":"$(id -gn "$SSH_PUBKEY_USER")" "$SSH_DIR"
+
+      _sshd_set_option "PubkeyAuthentication" "yes" "$SSHDCONF"
+      _sshd_set_option "PasswordAuthentication" "no" "$SSHDCONF"
+      _sshd_set_option "KbdInteractiveAuthentication" "no" "$SSHDCONF"
+
+      echo "SSH public key deployed for $SSH_PUBKEY_USER, password authentication disabled."
+    else
+      echo "Warning: user $SSH_PUBKEY_USER not found, skipping key deployment."
+    fi
+  fi
+
   cp "$SSHDCONF" "/etc/ssh/sshd_config.$(date +%y%m%d)"
   grep -vE '#|^$' "/etc/ssh/sshd_config.$(date +%y%m%d)" | sort | uniq > "$SSHDCONF"
   rm "/etc/ssh/sshd_config.$(date +%y%m%d)"
