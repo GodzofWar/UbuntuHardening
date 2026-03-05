@@ -43,7 +43,7 @@ function f_package_install {
     DISTRO_PACKAGES="update-notifier-common"
   fi
 
-  PACKAGE_INSTALL="acct aide-common cracklib-runtime debsums gnupg2 haveged libpam-pwquality libpam-tmpdir needrestart openssh-server postfix psad rkhunter sysstat systemd-coredump tcpd vlock $DISTRO_PACKAGES $APPARMOR $AUDITD $VM"
+  PACKAGE_INSTALL="acct aide-common cracklib-runtime debsums fail2ban gnupg2 haveged libpam-pwquality libpam-tmpdir needrestart openssh-server postfix psad rkhunter sysstat systemd-coredump tcpd vlock $DISTRO_PACKAGES $APPARMOR $AUDITD $VM"
 
   for deb_install in $PACKAGE_INSTALL; do
     $APT install -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confnew --no-install-recommends "$deb_install"

@@ -1,0 +1,37 @@
+function f_fail2ban {
+  echo "[$SCRIPT_COUNT] Configure fail2ban"
+
+  if ! command -v fail2ban-client >/dev/null 2>&1; then
+    echo "fail2ban is not installed."
+    return
+  fi
+
+  local JAIL_LOCAL="/etc/fail2ban/jail.local"
+
+  cat > "$JAIL_LOCAL" << EOF
+[DEFAULT]
+bantime = 1h
+findtime = 10m
+maxretry = 3
+banaction = ufw
+
+[sshd]
+enabled = true
+port = $SSH_PORT
+logpath = %(sshd_log)s
+maxretry = 3
+EOF
+
+  chmod 0644 "$JAIL_LOCAL"
+
+  systemctl enable fail2ban.service
+  systemctl restart fail2ban.service
+
+  if [[ $VERBOSE == "Y" ]]; then
+    systemctl status fail2ban.service --no-pager
+    fail2ban-client status
+    echo
+  fi
+
+  ((SCRIPT_COUNT++))
+}

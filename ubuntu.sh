@@ -178,6 +178,7 @@ function main {
   f_rkhunter
   f_sshconfig
   f_sshdconfig
+  f_fail2ban
   f_password
   f_cron
   f_ctrlaltdel
