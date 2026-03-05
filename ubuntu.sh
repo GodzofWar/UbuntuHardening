@@ -196,7 +196,6 @@ function main {
   f_aide_timer
   f_aptget_noexec
   f_aptget_clean
-  f_serviceconf
   f_systemddelta
   f_post
   f_checkreboot
