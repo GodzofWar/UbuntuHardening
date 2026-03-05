@@ -46,7 +46,16 @@ function main {
     DISTRO=""
   fi
 
-  LXC="0"
+  VIRT="$(systemd-detect-virt 2>/dev/null || echo 'none')"
+
+  case "$VIRT" in
+    lxc*|lxd*|docker|podman|openvz)
+      LXC="1"
+      ;;
+    *)
+      LXC="0"
+      ;;
+  esac
 
   if resolvectl status >/dev/null 2>&1; then
     SERVERIP="$(ip route get "$(resolvectl status |\
@@ -57,10 +66,6 @@ function main {
     SERVERIP="$(ip route get "$(grep '^nameserver' /etc/resolv.conf |\
       tail -n1 | awk '{print $NF}')" |\
       grep -Eo '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | tail -n1)"
-  fi
-
-  if grep -qE 'container=lxc|container=lxd' /proc/1/environ; then
-    LXC="1"
   fi
 
   if grep -s "AUTOFILL='Y'" ./ubuntu.cfg; then
@@ -131,6 +136,7 @@ function main {
   readonly USERADD
   readonly USERCONF
   readonly VERBOSE
+  readonly VIRT
   readonly WBIN
 
   for s in ./scripts/*; do

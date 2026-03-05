@@ -13,13 +13,20 @@ function f_package_install {
   AUDITD="auditd audispd-plugins"
   VM=""
 
-  if dmesg | grep -i -E "dmi.*vmware"; then
-    VM="open-vm-tools"
-  fi
-
-  if dmesg | grep -i -E "dmi.*virtualbox"; then
-    VM="virtualbox-guest-dkms virtualbox-guest-utils"
-  fi
+  case "$VIRT" in
+    vmware)
+      VM="open-vm-tools"
+      ;;
+    oracle)
+      VM="virtualbox-guest-dkms virtualbox-guest-utils"
+      ;;
+    kvm)
+      VM="qemu-guest-agent"
+      ;;
+    microsoft)
+      VM="hyperv-daemons"
+      ;;
+  esac
 
   if [[ $LXC == "1" ]]; then
     APPARMOR=""
