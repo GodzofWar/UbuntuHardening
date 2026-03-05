@@ -1,9 +1,9 @@
 image::logo/horizontal.png[Ubuntu Hardening]
-= Hardening Ubuntu. Systemd edition.
+= Hardening Ubuntu and Debian. Systemd edition.
 
 :icons: font
 
-A quick way to make a Ubuntu server a bit more secure.
+A quick way to make a Ubuntu or Debian server a bit more secure.
 
 Use the newly installed and configured system as a reference,
 or golden, image. Use that image as a baseline installation media and ensure
@@ -11,7 +11,8 @@ that any future installation comply with benchmarks and policies using a
 configuration management tool, e.g https://www.ansible.com/[Ansible] or
 https://puppet.com/[Puppet].
 
-Tested on `Ubuntu 20.04 Focal Fossa`, `Ubuntu 22.04 Jammy Jellyfish` and `Ubuntu 24.04 Noble Numbat`.
+Tested on `Ubuntu 20.04 Focal Fossa`, `Ubuntu 22.04 Jammy Jellyfish`,
+`Ubuntu 24.04 Noble Numbat`, and `Debian`.
 
 If you're just interested in the security focused systemd configuration, it's
 available as a link:systemd.adoc[separate document].
@@ -35,12 +36,22 @@ repository.
 
 == Howto
 
+=== Ubuntu
+
 . Start the server installation.
 . Pick language and keyboard layout.
 . Select "Ubuntu Server (minimized)".
 . Configure network connections.
 . Partition the system, see below for recommendations.
 . Do not install the OpenSSH server, "Featured Server Snaps", or any other packages.
+. Finish the installation and reboot.
+. Log in.
+
+=== Debian
+
+. Perform a minimal Debian installation.
+. Partition the system, see below for recommendations.
+. Do not install a desktop environment or any additional services.
 . Finish the installation and reboot.
 . Log in.
 . If wanted, set a Grub2 password with `grub-mkpasswd-pbkdf2`. See https://help.ubuntu.com/community/Grub2/Passwords[https://help.ubuntu.com/community/Grub2/Passwords]
@@ -142,7 +153,8 @@ Note that all functions has the `f_` prefix in the code.
 
 ==== `pre`
 
-Sets `apt` flags and performs basic permission check.
+Sets `apt` flags, performs basic permission check, and validates
+that the system is running Ubuntu or Debian.
 
 The `pre` function is located in link:scripts/pre[./scripts/pre].
 
@@ -357,8 +369,9 @@ The `rootaccess` function is located in link:scripts/rootaccess[./scripts/rootac
 
 Installs `acct`, `aide-common`, `cracklib-runtime`, `debsums`, `gnupg2`,
 `haveged`, `libpam-pwquality`, `libpam-tmpdir`, `needrestart`, `openssh-server`,
-`postfix`, `psad`, `rkhunter`, `sysstat`, `systemd-coredump`, `tcpd`,
-`update-notifier-common`, `vlock`.
+`postfix`, `psad`, `rkhunter`, `sysstat`, `systemd-coredump`, `tcpd`, `vlock`.
+
+On Ubuntu, `update-notifier-common` is also installed.
 
 The `package_install` function is located in link:scripts/packages[./scripts/packages].
 
@@ -392,15 +405,18 @@ The `postfix` function is located in link:scripts/postfix[./scripts/postfix].
 ==== `apport`
 
 Disables
-https://manpages.ubuntu.com/manpages/jammy/man1/apport-cli.1.html[apport],
-https://github.com/Ubuntu/ubuntu-report[ubuntu-report] and
 https://manpages.ubuntu.com/manpages/jammy/en/man8/popularity-contest.8.html[popularity-contest].
+
+On Ubuntu, also disables
+https://manpages.ubuntu.com/manpages/jammy/man1/apport-cli.1.html[apport] and
+https://github.com/Ubuntu/ubuntu-report[ubuntu-report].
 
 The `apport` function is located in link:scripts/apport[./scripts/apport].
 
 ==== `motdnews`
 
-Disables `apt_news` and https://ubuntu.com/legal/motd[motd-news].
+Disables https://ubuntu.com/legal/motd[motd-news].
+On Ubuntu, also disables `apt_news` via `pro`.
 
 The `motdnews` function is located in link:scripts/motdnews[./scripts/motdnews].
 
@@ -532,9 +548,11 @@ The `lockroot` function is located in link:scripts/lockroot[./scripts/lockroot].
 
 ==== `package_remove`
 
-Removes the `apport*`, `autofs`, `avahi*`, `beep`, `git`, `pastebinit`,
-`popularity-contest`, `rsh*`, `rsync`, `talk*`, `telnet*`, `tftp*`, `whoopsie`,
+Removes the `autofs`, `avahi*`, `beep`, `git`, `pastebinit`,
+`popularity-contest`, `rsh*`, `rsync`, `talk*`, `telnet*`, `tftp*`,
 `xinetd`, `yp-tools`, `ypbind` packages.
+
+On Ubuntu, also removes `apport*` and `whoopsie`.
 
 The `package_remove` function is located in link:scripts/packages[./scripts/packages].
 
@@ -563,6 +581,8 @@ Copies ./config/initpath.sh[./config/initpath.sh] to `/etc/profile.d/initpath.sh
 and sets `PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin`
 for the `root` user and `PATH=/usr/local/bin:/usr/sbin:/usr/bin:/bin:/snap/bin`
 for everyone else.
+
+On Debian, `/snap/bin` is omitted from the PATH.
 
 The `path` function is located in link:scripts/path[./scripts/path].
 
@@ -607,8 +627,9 @@ The `systemddelta` function is located in link:scripts/systemddelta[./scripts/sy
 ==== `post`
 
 Ensures https://manpages.ubuntu.com/manpages/jammy/man1/fwupdmgr.1.html[fwupdmgr]
-and https://packages.ubuntu.com/jammy/secureboot-db[secureboot-db] is installed
-and GRUB is updated.
+is installed and GRUB is updated.
+
+On Ubuntu, https://packages.ubuntu.com/jammy/secureboot-db[secureboot-db] is also installed.
 
 The `post` function is located in link:scripts/post[./scripts/post].
 
