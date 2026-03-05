@@ -38,6 +38,14 @@ function main {
   PINGBIN="$(command -v ping)"
   WBIN="$(command -v w)"
   WHOBIN="$(command -v who)"
+  if lsb_release -i 2>/dev/null | grep -q 'Ubuntu'; then
+    DISTRO="ubuntu"
+  elif lsb_release -i 2>/dev/null | grep -q 'Debian'; then
+    DISTRO="debian"
+  else
+    DISTRO=""
+  fi
+
   LXC="0"
 
   if resolvectl status >/dev/null 2>&1; then
@@ -87,6 +95,7 @@ function main {
   readonly COMMONPASSWD
   readonly COREDUMPCONF
   readonly DEFAULTGRUB
+  readonly DISTRO
   readonly DISABLEFS
   readonly DISABLEMOD
   readonly DISABLENET

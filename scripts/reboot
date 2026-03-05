@@ -1,5 +1,9 @@
 function f_checkreboot {
+  echo "[$SCRIPT_COUNT] Check reboot"
+
   if [ -f /var/run/reboot-required ]; then
     cat /var/run/reboot-required
   fi
+
+  ((SCRIPT_COUNT++))
 }

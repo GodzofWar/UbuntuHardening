@@ -5,7 +5,7 @@ function f_package_install {
   local AUDITD
   local VM
 
-  if [[ "${KEEP_SNAPD}" == "Y" ]]; then
+  if [[ "$DISTRO" == "ubuntu" && "${KEEP_SNAPD}" == "Y" ]]; then
     apt-mark hold snapd
   fi
 
@@ -30,8 +30,13 @@ function f_package_install {
   echo "postfix postfix/mailname string $(hostname -f)" | debconf-set-selections
 
   local PACKAGE_INSTALL
+  local DISTRO_PACKAGES=""
 
-  PACKAGE_INSTALL="acct aide-common cracklib-runtime debsums gnupg2 haveged libpam-pwquality libpam-tmpdir needrestart openssh-server postfix psad rkhunter sysstat systemd-coredump tcpd update-notifier-common vlock $APPARMOR $AUDITD $VM"
+  if [[ "$DISTRO" == "ubuntu" ]]; then
+    DISTRO_PACKAGES="update-notifier-common"
+  fi
+
+  PACKAGE_INSTALL="acct aide-common cracklib-runtime debsums gnupg2 haveged libpam-pwquality libpam-tmpdir needrestart openssh-server postfix psad rkhunter sysstat systemd-coredump tcpd vlock $DISTRO_PACKAGES $APPARMOR $AUDITD $VM"
 
   for deb_install in $PACKAGE_INSTALL; do
     $APT install -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confnew --no-install-recommends "$deb_install"
@@ -49,7 +54,11 @@ function f_package_remove {
   echo "[$SCRIPT_COUNT] Package removal"
 
   local PACKAGE_REMOVE
-  PACKAGE_REMOVE="apport* autofs avahi* beep git pastebinit popularity-contest rsh* rsync talk* telnet* tftp* whoopsie xinetd yp-tools ypbind"
+  PACKAGE_REMOVE="autofs avahi* beep git pastebinit popularity-contest rsh* rsync talk* telnet* tftp* xinetd yp-tools ypbind"
+
+  if [[ "$DISTRO" == "ubuntu" ]]; then
+    PACKAGE_REMOVE="apport* whoopsie $PACKAGE_REMOVE"
+  fi
 
   for deb_remove in $PACKAGE_REMOVE; do
     $APT purge "$deb_remove"

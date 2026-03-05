@@ -10,7 +10,7 @@ function f_motdnews {
       echo
     fi
 
-  if command -v pro 2>/dev/null 1>&2; then
+  if [[ "$DISTRO" == "ubuntu" ]] && command -v pro 2>/dev/null 1>&2; then
     pro config set apt_news=false
   fi
 

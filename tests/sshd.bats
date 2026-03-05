@@ -182,6 +182,26 @@ load test_helper
   [ "$status" -eq 0 ]
 }
 
+@test "Verify OpenSSH PasswordAuthentication" {
+  run sshdConfig '^PasswordAuthentication no$'
+  [ "$status" -eq 0 ]
+}
+
+@test "Verify OpenSSH PrintMotd" {
+  run sshdConfig '^PrintMotd no$'
+  [ "$status" -eq 0 ]
+}
+
+@test "Verify OpenSSH UsePAM" {
+  run sshdConfig '^UsePAM yes$'
+  [ "$status" -eq 0 ]
+}
+
+@test "Verify OpenSSH KbdInteractiveAuthentication" {
+  run sshdConfig '^KbdInteractiveAuthentication no$'
+  [ "$status" -eq 0 ]
+}
+
 @test "Verify moduli sizes" {
   run moduliSize
   [ "$status" -eq 0 ]

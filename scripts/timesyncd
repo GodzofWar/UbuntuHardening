@@ -19,7 +19,11 @@ function f_timesyncd {
 
   if [[ -z "$NTPSERVERPOOL" ]]; then
     local NTPSERVERPOOL
-    NTPSERVERPOOL="0.ubuntu.pool.ntp.org 1.ubuntu.pool.ntp.org 2.ubuntu.pool.ntp.org 3.ubuntu.pool.ntp.org pool.ntp.org"
+    if [[ "$DISTRO" == "debian" ]]; then
+      NTPSERVERPOOL="0.debian.pool.ntp.org 1.debian.pool.ntp.org 2.debian.pool.ntp.org 3.debian.pool.ntp.org pool.ntp.org"
+    else
+      NTPSERVERPOOL="0.ubuntu.pool.ntp.org 1.ubuntu.pool.ntp.org 2.ubuntu.pool.ntp.org 3.ubuntu.pool.ntp.org pool.ntp.org"
+    fi
   fi
 
   echo "[Time]" > "$TMPCONF"

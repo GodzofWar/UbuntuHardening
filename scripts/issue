@@ -9,7 +9,7 @@ function f_issue {
 - Any or all uses of this system and all files on this system may be monitored.
 - Communications using, or data stored on, this system are not private.
 "
-    echo -e "$TEXT" > $f
+    echo -e "$TEXT" > "$f"
   done
 
   chmod a-x /etc/update-motd.d/*

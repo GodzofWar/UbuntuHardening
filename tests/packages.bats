@@ -87,6 +87,16 @@ load test_helper
   [ "$status" -eq 0 ]
 }
 
+@test "Verify that cracklib-runtime is installed" {
+  run packageInstalled 'cracklib-runtime'
+  [ "$status" -eq 0 ]
+}
+
+@test "Verify that systemd-coredump is installed" {
+  run packageInstalled 'systemd-coredump'
+  [ "$status" -eq 0 ]
+}
+
 @test "Verify that libpam-apparmor is installed" {
   run packageInstalled 'libpam-apparmor'
   [ "$status" -eq 0 ]

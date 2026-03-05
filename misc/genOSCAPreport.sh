@@ -24,7 +24,7 @@ function generate_report () {
     RELEASE="$(lsb_release -r | awk '{print $NF}' | tr -d '.')"
 
     sudo apt-get -y update
-    if lsb_release -d | grep -qoE 'Ubuntu\s2(0|2).04'; then
+    if lsb_release -d | grep -qoE 'Ubuntu\s2(0|2|4).04'; then
       sudo apt-get install -y libopenscap8 unzip wget
     else
       sudo apt-get install -y libopenscap25t64 openscap-common openscap-scanner unzip wget

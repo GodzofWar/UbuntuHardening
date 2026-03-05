@@ -1,8 +1,10 @@
 function f_systemddelta {
+  echo "[$SCRIPT_COUNT] Show systemd-delta"
+
   if [[ $VERBOSE == "Y" ]]; then
-    echo "[$SCRIPT_COUNT] Show systemd-delta"
     systemd-delta --no-pager
-    ((SCRIPT_COUNT++))
     echo
   fi
+
+  ((SCRIPT_COUNT++))
 }

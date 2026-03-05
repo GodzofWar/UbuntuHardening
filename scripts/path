@@ -1,8 +1,17 @@
 function f_path {
   echo "[$SCRIPT_COUNT] Modifying paths"
 
-  sed -i 's/PATH=.*/PATH=\"\/usr\/local\/bin:\/usr\/sbin:\/usr\/bin:\/bin:\/snap\/bin"/' /etc/environment
+  if [[ "$DISTRO" == "debian" ]]; then
+    sed -i 's/PATH=.*/PATH=\"\/usr\/local\/bin:\/usr\/sbin:\/usr\/bin:\/bin"/' /etc/environment
+  else
+    sed -i 's/PATH=.*/PATH=\"\/usr\/local\/bin:\/usr\/sbin:\/usr\/bin:\/bin:\/snap\/bin"/' /etc/environment
+  fi
+
   cp ./config/initpath.sh /etc/profile.d/initpath.sh
+
+  if [[ "$DISTRO" == "debian" ]]; then
+    sed -i 's|:/snap/bin||g' /etc/profile.d/initpath.sh
+  fi
 
   chown root:root /etc/profile.d/initpath.sh
   chmod 0644 /etc/profile.d/initpath.sh

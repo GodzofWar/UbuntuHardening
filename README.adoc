@@ -11,7 +11,7 @@ that any future installation comply with benchmarks and policies using a
 configuration management tool, e.g https://www.ansible.com/[Ansible] or
 https://puppet.com/[Puppet].
 
-Tested on `Ubuntu 20.04 Focal Fossa` and `Ubuntu 22.04 Jammy Jellyfish`.
+Tested on `Ubuntu 20.04 Focal Fossa`, `Ubuntu 22.04 Jammy Jellyfish` and `Ubuntu 24.04 Noble Numbat`.
 
 If you're just interested in the security focused systemd configuration, it's
 available as a link:systemd.adoc[separate document].
