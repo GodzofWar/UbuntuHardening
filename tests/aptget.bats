@@ -57,6 +57,11 @@ load test_helper
   [ "$status" -eq 0 ]
 }
 
+@test "Verify APT SandboxSeccomp allows readlink" {
+  run bash -c "grep '^APT::Sandbox::Seccomp::Allow { \"readlink\"; };$' /etc/apt/apt.conf.d/*"
+  [ "$status" -eq 0 ]
+}
+
 @test "Verify APT runtime AllowRedirect" {
   run bash -c "apt-config dump | grep '^Acquire::http::AllowRedirect \"false\";$'"
   [ "$status" -eq 0 ]
@@ -109,5 +114,10 @@ load test_helper
 
 @test "Verify APT runtime SandboxSeccomp" {
   run bash -c "apt-config dump | grep '^APT::Sandbox::Seccomp \"1\";$'"
+  [ "$status" -eq 0 ]
+}
+
+@test "Verify APT runtime SandboxSeccomp allows readlink" {
+  run bash -c "apt-config dump | grep '^APT::Sandbox::Seccomp::Allow:: \"readlink\";$'"
   [ "$status" -eq 0 ]
 }

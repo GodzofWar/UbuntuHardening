@@ -30,11 +30,13 @@ _apt_set_option() {
   local value="$2"
   local default_file="$3"
 
-  if ! grep "^${key}" /etc/apt/apt.conf.d/* 2>/dev/null; then
+  # Match the key followed by whitespace so that e.g. APT::Sandbox::Seccomp
+  # does not also match APT::Sandbox::Seccomp::Allow.
+  if ! grep "^${key}[[:space:]]" /etc/apt/apt.conf.d/* 2>/dev/null; then
     echo "${key} ${value}" >> "$default_file"
   else
     # shellcheck disable=SC2046
-    sed -i "s/.*${key}.*/${key} ${value}/g" "$(grep -l "${key}" /etc/apt/apt.conf.d/*)"
+    sed -i "s/^${key}[[:space:]].*/${key} ${value}/g" $(grep -l "^${key}[[:space:]]" /etc/apt/apt.conf.d/*)
   fi
 }
 
@@ -54,6 +56,11 @@ function f_aptget_configure {
   _apt_set_option 'Acquire::AllowDowngradeToInsecureRepositories' '"false";' "$HARDENING_CONF"
   _apt_set_option 'Acquire::AllowInsecureRepositories' '"false";' "$HARDENING_CONF"
   _apt_set_option 'APT::Sandbox::Seccomp' '"1";' "$HARDENING_CONF"
+  # apt >= 2.9.x calls readlink() in the file method when the destination is a
+  # symlink (e.g. the mirror list of a mirror+file: source, as used by Debian and Ubuntu
+  # cloud images), but readlink is not in apt's built-in seccomp allow list.
+  # Without this every apt invocation dies with "Method file has died unexpectedly!".
+  _apt_set_option 'APT::Sandbox::Seccomp::Allow' '{ "readlink"; };' "$HARDENING_CONF"
 
   ((SCRIPT_COUNT++))
 }

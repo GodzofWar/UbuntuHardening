@@ -7,10 +7,12 @@ function f_pre {
   export TERM=linux
   export DEBIAN_FRONTEND=noninteractive
 
+  # DPkg::Lock::Timeout waits for a concurrent apt/dpkg (e.g. cloud-init or
+  # unattended-upgrades on first boot) instead of failing immediately.
   if [[ $VERBOSE == "Y" ]]; then
-    APTFLAGS='--assume-yes'
+    APTFLAGS='--assume-yes -o DPkg::Lock::Timeout=300'
   else
-    APTFLAGS='-qq --assume-yes'
+    APTFLAGS='-qq --assume-yes -o DPkg::Lock::Timeout=300'
   fi
 
   APT="apt-get $APTFLAGS"

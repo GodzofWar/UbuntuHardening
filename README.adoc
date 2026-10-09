@@ -332,6 +332,12 @@ Sets `apt` options `Acquire::http::AllowRedirect "false";`, `APT::Get::AllowUnau
 `APT::Install-Recommends "false";`, `APT::Get::AutomaticRemove "true";`,
 `APT::Install-Suggests "false";`, `Acquire::AllowDowngradeToInsecureRepositories "false";`,
 `Acquire::AllowInsecureRepositories "false";`, `APT::Sandbox::Seccomp "1";`
+and `APT::Sandbox::Seccomp::Allow { "readlink"; };`.
+
+The `readlink` syscall is allowed because `apt` 2.9 and later calls it from the
+`file` method when a download destination is a symlink, which is always the case
+for the mirror list of a `mirror+file:` source (the default on Debian and Ubuntu cloud images).
+Without it every `apt` run fails with `Method file has died unexpectedly!`.
 
 See https://manpages.ubuntu.com/manpages/jammy/man5/apt.conf.5.html[https://manpages.ubuntu.com/manpages/jammy/man5/apt.conf.5.html].
 
