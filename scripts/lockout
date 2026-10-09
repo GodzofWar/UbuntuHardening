@@ -103,6 +103,32 @@ _lockout_user_has_key() {
     grep -qE '(^|[[:space:]])(ssh-(rsa|ed25519)|ecdsa-sha2-nistp(256|384|521)|sk-(ssh-ed25519|ecdsa-sha2-nistp256))(@openssh\.com)?[[:space:]]+[A-Za-z0-9+/=]+'
 }
 
+_lockout_user_has_password() {
+  local user="$1"
+  local hash
+
+  [[ -n "$user" ]] || return 1
+
+  hash="$(getent shadow "$user" 2>/dev/null | cut -d: -f2)"
+  [[ "$hash" =~ ^\$ ]]
+}
+
+# A key configured for deployment counts if it will be deployed to this user,
+# see the key deployment in sshdconfig.
+_lockout_key_deployment_pending() {
+  local user="$1"
+  local target="${SSH_PUBKEY_USER:-${ADMIN_USER:-}}"
+
+  [[ -n "$SSH_PUBKEY" || -n "${SSH_GITHUB_USERS:-}" ]] && [[ "$target" == "$user" ]]
+}
+
+_lockout_user_reachable() {
+  local user="$1"
+
+  _lockout_user_has_key "$user" || _lockout_user_has_password "$user" ||\
+    _lockout_key_deployment_pending "$user"
+}
+
 _lockout_key_access_available() {
   local user group
 
@@ -124,9 +150,86 @@ _lockout_key_access_available() {
   return 1
 }
 
+# Give an account the authorized_keys of root, so the key the administrator is
+# logged in with right now keeps working for that account.
+_lockout_copy_root_keys() {
+  local user="$1"
+  local home key
+
+  home="$(getent passwd "$user" | cut -d: -f6)"
+  [[ -n "$home" ]] || return 1
+
+  if [[ ! -s /root/.ssh/authorized_keys || -L /root/.ssh/authorized_keys ]]; then
+    return 1
+  fi
+
+  if [[ -L "$home/.ssh" || -L "$home/.ssh/authorized_keys" ]]; then
+    echo "ERROR: $home/.ssh or authorized_keys is a symlink, refusing to write."
+    return 1
+  fi
+
+  mkdir -p "$home/.ssh"
+  chmod 0700 "$home/.ssh"
+
+  while IFS= read -r key; do
+    if [[ -n "$key" && ! "$key" =~ ^[[:space:]]*# ]] &&\
+      ! grep -qF "$key" "$home/.ssh/authorized_keys" 2>/dev/null; then
+      echo "$key" >> "$home/.ssh/authorized_keys"
+    fi
+  done < /root/.ssh/authorized_keys
+
+  [[ -f "$home/.ssh/authorized_keys" ]] || return 1
+
+  chmod 0600 "$home/.ssh/authorized_keys"
+  chown -R "$user":"$(id -gn "$user")" "$home/.ssh"
+  echo "Copied the SSH public keys of root to $user."
+}
+
+# Set a generated password: the administrator account needs one for sudo and
+# cloud image users have none. The password is printed so that it ends up in
+# the console output and the log file, and must be changed at first login.
+_lockout_set_password() {
+  local user="$1"
+  local password password_file
+
+  password_file="/root/.${user}_initial_password"
+  password="$(tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 24)"
+
+  if ! echo "${user}:${password}" | chpasswd; then
+    echo "ERROR: failed to set a password for $user."
+    return 1
+  fi
+
+  usermod -U "$user" 2>/dev/null || true
+  chage -d 0 "$user"
+
+  (umask 077 && echo "$password" > "$password_file")
+  chmod 0600 "$password_file"
+
+  echo
+  echo "=================================================================="
+  echo " Generated password for $user: $password"
+  echo " Save it now. It must be changed at first login and is also stored"
+  echo " in $password_file (root only). Remove that file once used."
+  echo "=================================================================="
+  echo
+}
+
+# Credentials for an account that cannot log in yet: the keys of root if there
+# are any, or a key configured for deployment, plus a password.
+_lockout_provision_credentials() {
+  local user="$1"
+
+  if ! _lockout_copy_root_keys "$user" && ! _lockout_key_deployment_pending "$user"; then
+    echo "Warning: root has no SSH public keys to copy to $user, it will only have a password."
+  fi
+
+  _lockout_set_password "$user"
+}
+
 _lockout_create_admin() {
   local user="$1"
-  local home group hash password credential="N"
+  local home group
 
   if [[ ! "$user" =~ ^[a-z_][a-z0-9_-]*$ ]]; then
     echo "ERROR: DEFAULT_ADMIN '$user' is not a valid user name."
@@ -161,53 +264,7 @@ _lockout_create_admin() {
     fi
   done
 
-  if [[ -s /root/.ssh/authorized_keys && ! -L /root/.ssh/authorized_keys ]]; then
-    if [[ -L "$home/.ssh" || -L "$home/.ssh/authorized_keys" ]]; then
-      echo "ERROR: $home/.ssh or authorized_keys is a symlink, refusing to write."
-      return 1
-    fi
-
-    mkdir -p "$home/.ssh"
-    chmod 0700 "$home/.ssh"
-
-    while IFS= read -r key; do
-      if [[ -n "$key" && ! "$key" =~ ^[[:space:]]*# ]] &&\
-        ! grep -qF "$key" "$home/.ssh/authorized_keys" 2>/dev/null; then
-        echo "$key" >> "$home/.ssh/authorized_keys"
-      fi
-    done < /root/.ssh/authorized_keys
-
-    if [[ -f "$home/.ssh/authorized_keys" ]]; then
-      chmod 0600 "$home/.ssh/authorized_keys"
-      chown -R "$user":"$(id -gn "$user")" "$home/.ssh"
-      echo "Copied the SSH public keys of root to $user."
-      credential="Y"
-    fi
-  fi
-
-  hash="$(getent shadow root | cut -d: -f2)"
-  if [[ "$hash" =~ ^\$ ]]; then
-    usermod -p "$hash" "$user"
-    echo "$user has been given the current password of root."
-    credential="Y"
-  fi
-
-  if [[ "$credential" == "N" && -z "$SSH_PUBKEY" && -z "${SSH_GITHUB_USERS:-}" ]]; then
-    local password_file="/root/.${user}_initial_password"
-
-    password="$(tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 24)"
-    echo "${user}:${password}" | chpasswd
-    chage -d 0 "$user"
-
-    (umask 077 && echo "$password" > "$password_file")
-    chmod 0600 "$password_file"
-
-    echo "Generated password for $user: $password (must be changed at first login)" > /dev/tty 2>/dev/null || true
-    echo "A password for $user has been generated and must be changed at first login."
-    echo "It is stored in $password_file, readable by root only. Remove the file once used."
-  fi
-
-  return 0
+  _lockout_provision_credentials "$user"
 }
 
 function f_lockout {
@@ -271,6 +328,40 @@ function f_lockout {
     echo "or set LOCKOUT_CHECK='N' to skip this check."
     echo
     exit 1
+  fi
+
+  # The account the administrator must use afterwards is the sudoer.
+  if [[ -z "$ADMIN_USER" ]]; then
+    ADMIN_USER="$sudoer"
+  fi
+
+  # A sudo account that cannot log in (no key, locked or empty password, as on
+  # cloud images where only root has a key) is as good as no account at all,
+  # and one without a password cannot use sudo.
+  if ! _lockout_user_reachable "$sudoer"; then
+    echo "$sudoer has no SSH public key and no usable password."
+    if _lockout_provision_credentials "$sudoer"; then
+      echo "Log in as $sudoer after this run."
+    else
+      echo
+      echo "ERROR: $sudoer has no SSH public key and no usable password, and"
+      echo "the credentials of root could not be copied to it. The hardening"
+      echo "disables root logins and locks the root account, which would leave"
+      echo "this system without a usable administrator."
+      echo
+      echo "Deploy an SSH public key for $sudoer, for example:"
+      echo "  install -d -m 0700 -o $sudoer ~$sudoer/.ssh"
+      echo "  cp /root/.ssh/authorized_keys ~$sudoer/.ssh/ && chown $sudoer ~$sudoer/.ssh/authorized_keys"
+      echo "or set SSH_PUBKEY or SSH_GITHUB_USERS in ubuntu.cfg, and run the script again."
+      echo
+      exit 1
+    fi
+  elif ! _lockout_user_has_password "$sudoer"; then
+    echo "$sudoer has no usable password, which is required for sudo."
+    if ! _lockout_set_password "$sudoer"; then
+      echo "ERROR: could not set a password for $sudoer."
+      exit 1
+    fi
   fi
 
   if [[ -z "$detected_admin" ]]; then

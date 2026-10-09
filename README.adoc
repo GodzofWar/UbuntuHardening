@@ -187,12 +187,21 @@ other `who` sessions). Addresses of other logged in users are never trusted.
 
 Root logins are disabled and the root account is locked later on, so a
 non-root account with `sudo` privileges is required. If none exists the
-account named by `DEFAULT_ADMIN` is created, added to `sudo` and the groups in
-`$SSH_GRPS`, and given the `authorized_keys` and the password hash of `root`
-so the current way of logging in keeps working. If `root` has neither and no
-key is configured for deployment, a random password is generated, shown on
-the terminal, stored in `/root/.<DEFAULT_ADMIN>_initial_password` (mode
-`0600`, never written to the log) and must be changed at first login. An
+account named by `DEFAULT_ADMIN` is created and added to `sudo` and the groups
+in `$SSH_GRPS`. An existing `sudo` account that cannot log in, because it has
+neither a key in `authorized_keys` nor a usable password (the default for the
+`debian` and `ubuntu` users on cloud images, where only `root` has a key), is
+treated the same way.
+
+Such an account is given the `authorized_keys` of `root`, so the key used for
+the current session keeps working, and a random password. An administrator
+account that can log in with a key but has no usable password is also given a
+random password, since `sudo` requires one. The password is printed to the
+console and the log file
+(`hardening-<hostname>-<date>.log`, mode `0600`), stored in
+`/root/.<user>_initial_password` (mode `0600`) and must be changed at first
+login. Save it before closing the session. If the credentials cannot be set up,
+the script exits with an error instead of locking the administrator out. An
 existing account is never promoted; if `DEFAULT_ADMIN` names an existing user
 without `sudo` privileges, or is empty, the script exits with an error.
 

@@ -17,6 +17,11 @@ load test_helper
   [ "$status" -eq 0 ]
 }
 
+@test "Ensure a non-root sudo account has a public key or a usable password" {
+  run bash -c "for u in \$(getent group sudo admin | cut -d: -f4 | tr ',' '\n' | grep -vE '^(root)?$' | sort -u); do h=\$(getent passwd \"\$u\" | cut -d: -f6); grep -v '^[[:space:]]*#' \"\$h/.ssh/authorized_keys\" 2>/dev/null | grep -qE '(ssh-(rsa|ed25519)|ecdsa-sha2-nistp|sk-)' && exit 0; getent shadow \"\$u\" | cut -d: -f2 | grep -q '^\\$' && exit 0; done; exit 1"
+  [ "$status" -eq 0 ]
+}
+
 @test "Ensure SSH port $SSH_PORT is reachable through UFW" {
   run bash -c "ufw status | grep -E '^$SSH_PORT/tcp +(ALLOW|LIMIT)'"
   [ "$status" -eq 0 ]

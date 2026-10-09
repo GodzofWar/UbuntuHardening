@@ -222,6 +222,8 @@ function main {
 }
 
 LOGFILE="hardening-$(hostname --short)-$(date +%y%m%d).log"
-echo "[HARDENING LOG - $(hostname --fqdn) - $(LANG=C date)]" >> "$LOGFILE"
+# The log can contain a generated administrator password, keep it root-only.
+(umask 077 && echo "[HARDENING LOG - $(hostname --fqdn) - $(LANG=C date)]" >> "$LOGFILE")
+chmod 0600 "$LOGFILE"
 
 main "$@" | tee -a "$LOGFILE"
