@@ -107,7 +107,9 @@ function f_sshdconfig {
     local USER_HOME
     USER_HOME="$(getent passwd "$KEY_USER" | cut -d: -f6)"
 
-    if [[ -n "$USER_HOME" ]]; then
+    if [[ -n "$USER_HOME" && ( -L "${USER_HOME}/.ssh" || -L "${USER_HOME}/.ssh/authorized_keys" ) ]]; then
+      echo "Warning: ${USER_HOME}/.ssh or authorized_keys is a symlink, skipping key deployment."
+    elif [[ -n "$USER_HOME" ]]; then
       local SSH_DIR="${USER_HOME}/.ssh"
       local AUTH_KEYS="${SSH_DIR}/authorized_keys"
 
