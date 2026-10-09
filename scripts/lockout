@@ -1,0 +1,317 @@
+# Pre-flight checks that make sure the administrator running the script can
+# still log in after the hardening has been applied. The results are stored
+# in the ADMIN_USER, ADMIN_IPS and ADMIN_SSH_GROUP variables, which are used
+# by the firewall, fail2ban and sshdconfig functions.
+
+_lockout_admin_user() {
+  local candidate
+
+  for candidate in "${SUDO_USER:-}" "${SSH_PUBKEY_USER:-}" "$(logname 2>/dev/null || true)"; do
+    if [[ -n "$candidate" && "$candidate" != "root" ]] && id "$candidate" &>/dev/null; then
+      echo "$candidate"
+      return
+    fi
+  done
+
+  "$WHOBIN" 2>/dev/null | awk '$1 != "root" {print $1}' | head -n1
+}
+
+# Only the address of the session running the script and the sessions of the
+# detected administrator account are trusted, never those of other users.
+_lockout_admin_ips() {
+  local admin_user="${1:-}"
+
+  {
+    if [[ -n "${SSH_CONNECTION:-}" ]]; then
+      echo "${SSH_CONNECTION%% *}"
+    fi
+
+    if [[ -n "${SSH_CLIENT:-}" ]]; then
+      echo "${SSH_CLIENT%% *}"
+    fi
+
+    "$WHOBIN" -m 2>/dev/null | grep -oE '\([^)]+\)' | tr -d '()'
+
+    if [[ -n "$admin_user" ]]; then
+      "$WHOBIN" 2>/dev/null | awk -v u="$admin_user" '$1 == u' |\
+        grep -oE '\([^)]+\)' | tr -d '()'
+    fi
+  } | sed -E 's/^\[//; s/\]$//; s/^::ffff://' |\
+    grep -E '^([0-9]{1,3}\.){3}[0-9]{1,3}$|^[0-9a-fA-F:]*:[0-9a-fA-F:]*$' |\
+    grep -vE '^127\.|^::1$|^0\.0\.0\.0$' | sort -u
+}
+
+_lockout_user_in_groups() {
+  local user="$1"
+  shift
+  local group
+
+  [[ -n "$user" ]] || return 1
+
+  for group in "$@"; do
+    if id -nG "$user" 2>/dev/null | tr ' ' '\n' | grep -qx "$group"; then
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+_lockout_user_can_sudo() {
+  local user="$1"
+
+  [[ -n "$user" && "$user" != "root" ]] || return 1
+
+  if _lockout_user_in_groups "$user" sudo admin wheel; then
+    return 0
+  fi
+
+  if command -v sudo >/dev/null 2>&1; then
+    sudo -l -U "$user" 2>/dev/null | grep -qE '\(ALL( : ALL)?\)'
+  else
+    return 1
+  fi
+}
+
+_lockout_group_members() {
+  local group="$1"
+  local gid
+
+  getent group "$group" >/dev/null 2>&1 || return 0
+
+  gid="$(getent group "$group" | cut -d: -f3)"
+
+  {
+    getent group "$group" | cut -d: -f4 | tr ',' '\n'
+    getent passwd | awk -F: -v gid="$gid" '$4 == gid {print $1}'
+  } | grep -v '^$' | sort -u
+}
+
+_lockout_user_has_key() {
+  local user="$1"
+  local home keys
+
+  [[ -n "$user" ]] || return 1
+
+  home="$(getent passwd "$user" 2>/dev/null | cut -d: -f6)"
+  [[ -n "$home" ]] || return 1
+
+  keys="$home/.ssh/authorized_keys"
+  [[ -s "$keys" ]] || return 1
+
+  grep -v '^[[:space:]]*#' "$keys" |\
+    grep -qE '(^|[[:space:]])(ssh-(rsa|ed25519)|ecdsa-sha2-nistp(256|384|521)|sk-(ssh-ed25519|ecdsa-sha2-nistp256))(@openssh\.com)?[[:space:]]+[A-Za-z0-9+/=]+'
+}
+
+_lockout_key_access_available() {
+  local user group
+
+  for user in "${ADMIN_USER:-}" "${SSH_PUBKEY_USER:-}"; do
+    if [[ -n "$user" ]] && _lockout_user_has_key "$user"; then
+      return 0
+    fi
+  done
+
+  # shellcheck disable=2086
+  for group in $SSH_GRPS ${ADMIN_SSH_GROUP:-}; do
+    for user in $(_lockout_group_members "$group"); do
+      if _lockout_user_has_key "$user"; then
+        return 0
+      fi
+    done
+  done
+
+  return 1
+}
+
+_lockout_create_admin() {
+  local user="$1"
+  local home group hash password credential="N"
+
+  if [[ ! "$user" =~ ^[a-z_][a-z0-9_-]*$ ]]; then
+    echo "ERROR: DEFAULT_ADMIN '$user' is not a valid user name."
+    return 1
+  fi
+
+  echo "No non-root account with sudo privileges was found, creating $user."
+
+  if id "$user" &>/dev/null; then
+    echo "ERROR: the user $user already exists but has no sudo privileges."
+    echo "Refusing to promote an existing account, set DEFAULT_ADMIN to an unused name."
+    return 1
+  fi
+
+  if ! useradd --create-home --shell /bin/bash --user-group "$user"; then
+    echo "ERROR: failed to create the user $user."
+    return 1
+  fi
+
+  home="$(getent passwd "$user" | cut -d: -f6)"
+  chmod 0750 "$home"
+
+  if ! getent group sudo >/dev/null 2>&1; then
+    groupadd sudo
+  fi
+  usermod -aG sudo "$user"
+
+  # shellcheck disable=2086
+  for group in $SSH_GRPS; do
+    if getent group "$group" >/dev/null 2>&1; then
+      usermod -aG "$group" "$user"
+    fi
+  done
+
+  if [[ -s /root/.ssh/authorized_keys && ! -L /root/.ssh/authorized_keys ]]; then
+    if [[ -L "$home/.ssh" || -L "$home/.ssh/authorized_keys" ]]; then
+      echo "ERROR: $home/.ssh or authorized_keys is a symlink, refusing to write."
+      return 1
+    fi
+
+    mkdir -p "$home/.ssh"
+    chmod 0700 "$home/.ssh"
+
+    while IFS= read -r key; do
+      if [[ -n "$key" && ! "$key" =~ ^[[:space:]]*# ]] &&\
+        ! grep -qF "$key" "$home/.ssh/authorized_keys" 2>/dev/null; then
+        echo "$key" >> "$home/.ssh/authorized_keys"
+      fi
+    done < /root/.ssh/authorized_keys
+
+    if [[ -f "$home/.ssh/authorized_keys" ]]; then
+      chmod 0600 "$home/.ssh/authorized_keys"
+      chown -R "$user":"$(id -gn "$user")" "$home/.ssh"
+      echo "Copied the SSH public keys of root to $user."
+      credential="Y"
+    fi
+  fi
+
+  hash="$(getent shadow root | cut -d: -f2)"
+  if [[ "$hash" =~ ^\$ ]]; then
+    usermod -p "$hash" "$user"
+    echo "$user has been given the current password of root."
+    credential="Y"
+  fi
+
+  if [[ "$credential" == "N" && -z "$SSH_PUBKEY" && -z "${SSH_GITHUB_USERS:-}" ]]; then
+    local password_file="/root/.${user}_initial_password"
+
+    password="$(tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 24)"
+    echo "${user}:${password}" | chpasswd
+    chage -d 0 "$user"
+
+    (umask 077 && echo "$password" > "$password_file")
+    chmod 0600 "$password_file"
+
+    echo "Generated password for $user: $password (must be changed at first login)" > /dev/tty 2>/dev/null || true
+    echo "A password for $user has been generated and must be changed at first login."
+    echo "It is stored in $password_file, readable by root only. Remove the file once used."
+  fi
+
+  return 0
+}
+
+function f_lockout {
+  ADMIN_USER=""
+  ADMIN_IPS=""
+  ADMIN_SSH_GROUP=""
+
+  if [[ "${LOCKOUT_CHECK:-Y}" != "Y" ]]; then
+    echo "[$SCRIPT_COUNT] Lockout prevention checks disabled"
+    ((SCRIPT_COUNT++))
+    return
+  fi
+
+  echo "[$SCRIPT_COUNT] Lockout prevention checks"
+
+  ADMIN_USER="$(_lockout_admin_user)"
+  ADMIN_IPS="$(_lockout_admin_ips "$ADMIN_USER" | tr '\n' ' ' | sed 's/ $//')"
+
+  if [[ -n "$ADMIN_USER" ]]; then
+    echo "Administrator account: $ADMIN_USER"
+  else
+    echo "Warning: could not determine a non-root administrator account."
+  fi
+
+  if [[ -n "$ADMIN_IPS" ]]; then
+    echo "Administrator address(es): $ADMIN_IPS"
+  fi
+
+  local sudoer=""
+  local user
+  local detected_admin="$ADMIN_USER"
+
+  if _lockout_user_can_sudo "$ADMIN_USER"; then
+    sudoer="$ADMIN_USER"
+  else
+    for user in $(_lockout_group_members sudo) $(_lockout_group_members admin); do
+      if [[ "$user" != "root" ]]; then
+        sudoer="$user"
+        break
+      fi
+    done
+  fi
+
+  if [[ -z "$sudoer" && -n "${DEFAULT_ADMIN:-}" ]]; then
+    if _lockout_create_admin "$DEFAULT_ADMIN"; then
+      sudoer="$DEFAULT_ADMIN"
+      ADMIN_USER="$DEFAULT_ADMIN"
+    fi
+  fi
+
+  if [[ -z "$sudoer" ]]; then
+    echo
+    echo "ERROR: no non-root account with sudo privileges was found."
+    echo "The hardening disables root logins and locks the root account,"
+    echo "which would leave this system without a usable administrator."
+    echo
+    echo "Create an administrator account first, for example:"
+    echo "  adduser admin && usermod -aG sudo admin"
+    echo "deploy an SSH public key for it, and run the script again."
+    echo "Set DEFAULT_ADMIN in ubuntu.cfg to have the account created automatically,"
+    echo "or set LOCKOUT_CHECK='N' to skip this check."
+    echo
+    exit 1
+  fi
+
+  if [[ -z "$detected_admin" ]]; then
+    echo
+    echo "WARNING: you appear to be running this script as root without sudo."
+    echo "Root logins over SSH and on the console will be disabled and the root"
+    echo "account will be locked. After this run you must log in as $sudoer."
+    echo "Make sure that account has a working password or SSH public key"
+    echo "and that it is a member of one of these groups: $SSH_GRPS"
+    echo
+  fi
+
+  # shellcheck disable=2086
+  if [[ -n "$ADMIN_USER" ]] && ! _lockout_user_in_groups "$ADMIN_USER" $SSH_GRPS; then
+    ADMIN_SSH_GROUP="$(id -gn "$ADMIN_USER")"
+    echo "Warning: $ADMIN_USER is not a member of SSH_GRPS ($SSH_GRPS)."
+    echo "The group $ADMIN_SSH_GROUP will be added to AllowGroups to prevent a lockout."
+  fi
+
+  local remote="N"
+  local address
+
+  for address in $FW_ADMIN $ADMIN_IPS; do
+    case "$address" in
+      127.*|::1|localhost) ;;
+      *) remote="Y" ;;
+    esac
+  done
+
+  if [[ "$remote" == "N" ]]; then
+    echo "Warning: FW_ADMIN only contains loopback addresses and no remote"
+    echo "administrator address was detected. SSH on port $SSH_PORT will be"
+    echo "rate limited but allowed from any address to prevent a lockout."
+  fi
+
+  if [[ -n "$ADMIN_USER" ]] && ! _lockout_user_has_key "$ADMIN_USER" &&\
+    [[ -z "$SSH_PUBKEY" && -z "${SSH_GITHUB_USERS:-}" ]]; then
+    echo "Warning: $ADMIN_USER has no SSH public key in authorized_keys and no"
+    echo "key is configured for deployment. Password authentication will be"
+    echo "kept enabled unless another allowed account has a key."
+  fi
+
+  ((SCRIPT_COUNT++))
+}

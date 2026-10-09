@@ -107,6 +107,8 @@ function main {
   readonly COMMONAUTH
   readonly COMMONPASSWD
   readonly COREDUMPCONF
+  : "${DEFAULT_ADMIN:=admin}"
+  readonly DEFAULT_ADMIN
   readonly DEFAULTGRUB
   readonly DISTRO
   readonly DISABLEFS
@@ -117,6 +119,8 @@ function main {
   readonly JOURNALDCONF
   readonly KEEP_SNAPD
   readonly LIMITSCONF
+  : "${LOCKOUT_CHECK:=Y}"
+  readonly LOCKOUT_CHECK
   readonly LOGINDCONF
   readonly LOGINDEFS
   readonly LOGROTATE
@@ -137,6 +141,8 @@ function main {
   readonly SSH_PORT
   readonly SSH_PUBKEY
   readonly SSH_PUBKEY_USER
+  : "${SSH_GITHUB_USERS:=}"
+  readonly SSH_GITHUB_USERS
   readonly SYSCTL
   readonly SYSCTL_CONF
   readonly SYSTEMCONF
@@ -156,6 +162,7 @@ function main {
   done
 
   f_pre
+  f_lockout
   f_kernel
   f_firewall
   f_disablenet

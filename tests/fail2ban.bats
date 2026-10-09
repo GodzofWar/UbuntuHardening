@@ -19,3 +19,8 @@
   run grep 'banaction = ufw' /etc/fail2ban/jail.local
   [ "$status" -eq 0 ]
 }
+
+@test "Verify fail2ban ignoreip includes loopback" {
+  run grep -E '^ignoreip = 127.0.0.1/8 ::1' /etc/fail2ban/jail.local
+  [ "$status" -eq 0 ]
+}

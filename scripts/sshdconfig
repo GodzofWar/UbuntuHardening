@@ -15,6 +15,10 @@ _sshd_set_option() {
 function f_sshdconfig {
   echo "[$SCRIPT_COUNT] $SSHDFILE"
 
+  local SSHD_BACKUP
+  SSHD_BACKUP="$(mktemp --tmpdir sshd_config.XXXXX)"
+  cp "$SSHDFILE" "$SSHD_BACKUP"
+
   awk '$5 >= 3071' /etc/ssh/moduli > /etc/ssh/moduli.tmp
   if [ -s /etc/ssh/moduli.tmp ]; then
     mv /etc/ssh/moduli.tmp /etc/ssh/moduli
@@ -88,12 +92,20 @@ function f_sshdconfig {
   _sshd_set_option "HostKeyAlgorithms" "ssh-ed25519,rsa-sha2-512,rsa-sha2-256" "$SSHDCONF"
 
   if ! grep -q "^AllowGroups" "$SSHDCONF" 2> /dev/null; then
-    echo "AllowGroups $SSH_GRPS" >> "$SSHDCONF"
+    local ALLOW_GROUPS="$SSH_GRPS"
+    if [[ -n "${ADMIN_SSH_GROUP:-}" ]]; then
+      ALLOW_GROUPS="$ALLOW_GROUPS $ADMIN_SSH_GROUP"
+    fi
+    echo "AllowGroups $ALLOW_GROUPS" >> "$SSHDCONF"
   fi
 
-  if [[ -n "$SSH_PUBKEY" && -n "$SSH_PUBKEY_USER" ]]; then
+  _sshd_set_option "PubkeyAuthentication" "yes" "$SSHDCONF"
+
+  local KEY_USER="${SSH_PUBKEY_USER:-${ADMIN_USER:-}}"
+
+  if [[ -n "$KEY_USER" ]] && [[ -n "$SSH_PUBKEY" || -n "${SSH_GITHUB_USERS:-}" ]]; then
     local USER_HOME
-    USER_HOME="$(getent passwd "$SSH_PUBKEY_USER" | cut -d: -f6)"
+    USER_HOME="$(getent passwd "$KEY_USER" | cut -d: -f6)"
 
     if [[ -n "$USER_HOME" ]]; then
       local SSH_DIR="${USER_HOME}/.ssh"
@@ -102,21 +114,61 @@ function f_sshdconfig {
       mkdir -p "$SSH_DIR"
       chmod 0700 "$SSH_DIR"
 
-      if ! grep -qF "$SSH_PUBKEY" "$AUTH_KEYS" 2>/dev/null; then
-        echo "$SSH_PUBKEY" >> "$AUTH_KEYS"
+      if [[ -n "$SSH_PUBKEY" ]]; then
+        if ! grep -qF "$SSH_PUBKEY" "$AUTH_KEYS" 2>/dev/null; then
+          echo "$SSH_PUBKEY" >> "$AUTH_KEYS"
+        fi
       fi
 
-      chmod 0600 "$AUTH_KEYS"
-      chown -R "$SSH_PUBKEY_USER":"$(id -gn "$SSH_PUBKEY_USER")" "$SSH_DIR"
+      if [[ -n "${SSH_GITHUB_USERS:-}" ]]; then
+        for gh_user in $SSH_GITHUB_USERS; do
+          if [[ ! "$gh_user" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+            echo "Warning: invalid GitHub username '$gh_user', skipping."
+            continue
+          fi
 
-      _sshd_set_option "PubkeyAuthentication" "yes" "$SSHDCONF"
-      _sshd_set_option "PasswordAuthentication" "no" "$SSHDCONF"
-      _sshd_set_option "KbdInteractiveAuthentication" "no" "$SSHDCONF"
+          local gh_keys=""
+          if command -v curl >/dev/null 2>&1; then
+            gh_keys="$(curl -fsSL --connect-timeout 10 "https://github.com/${gh_user}.keys" 2>/dev/null)" || true
+          elif command -v wget >/dev/null 2>&1; then
+            gh_keys="$(wget -qO- --timeout=10 "https://github.com/${gh_user}.keys" 2>/dev/null)" || true
+          else
+            echo "Warning: neither curl nor wget available, cannot fetch GitHub keys."
+            break
+          fi
 
-      echo "SSH public key deployed for $SSH_PUBKEY_USER, password authentication disabled."
+          if [[ -n "$gh_keys" ]]; then
+            while IFS= read -r key; do
+              if [[ -n "$key" ]] && ! grep -qF "$key" "$AUTH_KEYS" 2>/dev/null; then
+                echo "$key" >> "$AUTH_KEYS"
+              fi
+            done <<< "$gh_keys"
+            echo "Fetched SSH keys for GitHub user: $gh_user"
+          else
+            echo "Warning: no keys found for GitHub user $gh_user"
+          fi
+        done
+      fi
+
+      if [[ -f "$AUTH_KEYS" ]]; then
+        chmod 0600 "$AUTH_KEYS"
+        chown -R "$KEY_USER":"$(id -gn "$KEY_USER")" "$SSH_DIR"
+        echo "SSH keys deployed for $KEY_USER."
+      else
+        echo "Warning: no SSH keys were deployed for $KEY_USER."
+      fi
     else
-      echo "Warning: user $SSH_PUBKEY_USER not found, skipping key deployment."
+      echo "Warning: user $KEY_USER not found, skipping key deployment."
     fi
+  fi
+
+  if [[ "${LOCKOUT_CHECK:-Y}" != "Y" ]] || _lockout_key_access_available; then
+    _sshd_set_option "PasswordAuthentication" "no" "$SSHDCONF"
+    _sshd_set_option "KbdInteractiveAuthentication" "no" "$SSHDCONF"
+  else
+    echo "Warning: no account allowed to log in over SSH has a public key in authorized_keys."
+    echo "Password authentication is left unchanged to prevent a lockout."
+    echo "Deploy a key with SSH_PUBKEY or SSH_GITHUB_USERS and run the script again."
   fi
 
   cp "$SSHDCONF" "/etc/ssh/sshd_config.$(date +%y%m%d)"
@@ -131,7 +183,18 @@ function f_sshdconfig {
     SSH_SVC="sshd.service"
   fi
 
-  systemctl restart "$SSH_SVC"
+  if sshd -t; then
+    systemctl restart "$SSH_SVC"
+  else
+    echo "ERROR: the new OpenSSH configuration is invalid."
+    echo "Restoring $SSHDFILE and leaving the running daemon untouched."
+    cp "$SSHD_BACKUP" "$SSHDFILE"
+    if [[ "$SSHDCONF" != "$SSHDFILE" ]]; then
+      rm -f "$SSHDCONF"
+    fi
+  fi
+
+  rm -f "$SSHD_BACKUP"
 
   if [[ $VERBOSE == "Y" ]]; then
     systemctl status "$SSH_SVC" --no-pager

@@ -61,3 +61,8 @@ load test_helper
   run bash -c "grep '^auth.*pam_faildelay.*delay=4000000' $PAMLOGIN"
   [ "$status" -eq 0 ]
 }
+
+@test "Verify faillock unlock_time in $FAILLOCKCONF" {
+  run bash -c "[ ! -f $FAILLOCKCONF ] || grep -q '^unlock_time = 600$' $FAILLOCKCONF"
+  [ "$status" -eq 0 ]
+}

@@ -58,6 +58,7 @@ repository.
 for more information.
 . Install necessary packages: `sudo apt-get -y install git net-tools procps --no-install-recommends`.
 . Download the script: `git clone https://github.com/konstruktoid/hardening.git`.
+. Preferably log in as a non-root user that is a member of the `sudo` group and has a SSH public key in `~/.ssh/authorized_keys`. If the system only has `root`, a `sudo` account named by `DEFAULT_ADMIN` will be created with the keys and password of `root`; log in as that user afterwards.
 . Change the configuration options in the `ubuntu.cfg` file. Make sure to update the CHANGEME variable otherwise the script will fail.
 . Run the script: `sudo bash ubuntu.sh`.
 . Reboot.
@@ -92,9 +93,14 @@ VERBOSE='N' // <10>
 AUTOFILL='N' // <11>
 ADMINEMAIL="root@localhost" // <12>
 KEEP_SNAPD='Y' // <13>
-CHANGEME='' // <14>
+SSH_PUBKEY='' // <14>
+SSH_PUBKEY_USER='' // <15>
+SSH_GITHUB_USERS='' // <16>
+LOCKOUT_CHECK='Y' // <17>
+DEFAULT_ADMIN='admin' // <18>
+CHANGEME='' // <19>
 
-# Configuration files // <15>
+# Configuration files // <20>
 ADDUSER='/etc/adduser.conf'
 AUDITDCONF='/etc/audit/auditd.conf'
 AUDITRULES='/etc/audit/rules.d/hardening.rules'
@@ -142,8 +148,19 @@ USERCONF='/etc/systemd/user.conf'
 <11> Let the script guess the `FW_ADMIN` and `SSH_GRPS` settings.
 <12> Add a valid email address, so PSAD can send notifications.
 <13> If `'Y'` then the `snapd` package will be held to prevent removal.
-<14> Add something just to verify that you actually glanced the code.
-<15> Default configuration file locations.
+<14> Public key for key-only SSH access (e.g., `'ssh-ed25519 AAAA... user@host'`).
+<15> Username to deploy the public key for (e.g., `'admin'`).
+<16> GitHub usernames to fetch public keys from, separated by spaces (e.g., `'octocat konstruktoid'`). Keys are fetched from `https://github.com/<user>.keys`.
+<17> If `'Y'` the script verifies that the administrator keeps access to the
+system: a non-root sudo account exists, the administrator is allowed by
+`AllowGroups`, the administrator's address is allowed through the firewall and
+ignored by fail2ban, and password authentication is only disabled when an
+allowed account has a public key. Set to `'N'` to skip these checks.
+<18> Name of the `sudo` account created if the system has no non-root account
+with `sudo` privileges, e.g. a fresh VPS with only `root`. The account gets the
+SSH public keys and the password of `root`. Leave empty to disable.
+<19> Add something just to verify that you actually glanced the code.
+<20> Default configuration file locations.
 
 == Functions
 
@@ -157,6 +174,35 @@ Sets `apt` flags, performs basic permission check, and validates
 that the system is running Ubuntu or Debian.
 
 The `pre` function is located in link:scripts/pre[./scripts/pre].
+
+==== `lockout`
+
+Pre-flight checks that prevent the administrator from being locked out by the
+hardening. Skipped if `LOCKOUT_CHECK` is not `'Y'`.
+
+Detects the administrator account (`$SUDO_USER`, `$SSH_PUBKEY_USER` or the
+current login) and the address(es) the administrator is connected from
+(`$SSH_CONNECTION`, the current `who -m` session and the administrator's
+other `who` sessions). Addresses of other logged in users are never trusted.
+
+Root logins are disabled and the root account is locked later on, so a
+non-root account with `sudo` privileges is required. If none exists the
+account named by `DEFAULT_ADMIN` is created, added to `sudo` and the groups in
+`$SSH_GRPS`, and given the `authorized_keys` and the password hash of `root`
+so the current way of logging in keeps working. If `root` has neither and no
+key is configured for deployment, a random password is generated, shown on
+the terminal, stored in `/root/.<DEFAULT_ADMIN>_initial_password` (mode
+`0600`, never written to the log) and must be changed at first login. An
+existing account is never promoted; if `DEFAULT_ADMIN` names an existing user
+without `sudo` privileges, or is empty, the script exits with an error.
+
+If the administrator is not a member of any group in `$SSH_GRPS`, the
+administrator's primary group is added to `AllowGroups`. The detected
+addresses are allowed through the firewall and ignored by fail2ban. If neither
+`$FW_ADMIN` nor the detected addresses contain a remote address, SSH is rate
+limited but allowed from any address.
+
+The `lockout` function is located in link:scripts/lockout[./scripts/lockout].
 
 ==== `kernel`
 
@@ -172,7 +218,10 @@ The `kernel` function is located in link:scripts/kernel[./scripts/kernel].
 
 Configures https://help.ubuntu.com/community/UFW[UFW] if installed.
 
-Allows connections from the adresses in `$FW_ADMIN` to the `$SSH_PORT`.
+Allows connections from the adresses in `$FW_ADMIN`, and from the
+administrator addresses detected by the `lockout` function, to the
+`$SSH_PORT`. If none of these is a remote address, `ufw limit` is used to
+allow rate limited connections to `$SSH_PORT` from any address.
 
 Sets logging and `IPT_SYSCTL=/etc/sysctl.conf`.
 
@@ -441,6 +490,24 @@ the directory defined by the `Include` option if present, otherwise
 https://manpages.ubuntu.com/manpages/jammy/en/man5/sshd_config.5.html[$SSHDFILE]
 will be modified.
 
+Public key authentication is always enabled. If `SSH_PUBKEY` and/or
+`SSH_GITHUB_USERS` are set, the specified keys are deployed to the
+`~/.ssh/authorized_keys` file of `SSH_PUBKEY_USER`, or of the administrator
+account detected or created by the `lockout` function if `SSH_PUBKEY_USER` is
+empty. GitHub keys are fetched
+from `https://github.com/<user>.keys` using `curl` or `wget`. Both key sources
+are additive and deduplicated against existing entries.
+
+Password authentication is disabled only if the administrator, `SSH_PUBKEY_USER`
+or a member of a group in `AllowGroups` has a public key in
+`~/.ssh/authorized_keys`. Otherwise a warning is printed and the
+`PasswordAuthentication` setting is left unchanged. Set `LOCKOUT_CHECK='N'` to
+always disable password authentication.
+
+The resulting configuration is validated with `sshd -t` before the daemon is
+restarted. If the validation fails the original configuration is restored and
+the running daemon is left untouched.
+
 By default `/etc/ssh/sshd_config.d/hardening.conf` will contain the following:
 
 [source,shell]
@@ -473,6 +540,7 @@ PermitUserEnvironment no
 Port 22
 PrintLastLog yes
 PrintMotd no
+PubkeyAuthentication yes
 RekeyLimit 512M 1h
 StrictModes yes
 TCPKeepAlive no
@@ -483,6 +551,17 @@ X11Forwarding no
 
 The `sshdconfig` function is located in link:scripts/sshdconfig[./scripts/sshdconfig].
 
+==== `fail2ban`
+
+Configures https://github.com/fail2ban/fail2ban[fail2ban] if installed, with
+a `sshd` jail on `$SSH_PORT` using `ufw` as the ban action.
+
+Loopback addresses, the addresses in `$FW_ADMIN` and the administrator
+addresses detected by the `lockout` function are added to `ignoreip` so the
+administrator can not be banned.
+
+The `fail2ban` function is located in link:scripts/fail2ban[./scripts/fail2ban].
+
 ==== `password`
 
 Copies ./config/pwquality.conf[./config/pwquality.conf] to `/etc/security/pwquality.conf`,
@@ -492,7 +571,9 @@ Removes `nullok` from https://manpages.ubuntu.com/manpages/jammy/man5/pam.conf.5
 
 Configures https://manpages.ubuntu.com/manpages/jammy/en/man8/faillock.8.html[faillock]
 or https://manpages.ubuntu.com/manpages/jammy/man8/pam_tally2.8.html[pam_tally2]
-depending on which is installed.
+depending on which is installed. Accounts are locked after 5 failed attempts
+within 15 minutes and unlocked automatically after 10 minutes, so a failed
+login can never lock an account permanently.
 
 Adds a link:misc/passwords.list[password list] to https://manpages.ubuntu.com/manpages/jammy/man8/update-cracklib.8.html[cracklib].
 

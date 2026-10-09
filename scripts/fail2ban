@@ -14,6 +14,7 @@ bantime = 1h
 findtime = 10m
 maxretry = 3
 banaction = ufw
+ignoreip = 127.0.0.1/8 ::1 $FW_ADMIN ${ADMIN_IPS:-}
 
 [sshd]
 enabled = true

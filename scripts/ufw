@@ -22,9 +22,22 @@ function f_firewall {
 
   ufw default deny incoming
 
-  for admin in $FW_ADMIN; do
+  local remote="N"
+
+  # shellcheck disable=2086
+  for admin in $(printf '%s\n' $FW_ADMIN ${ADMIN_IPS:-} | sort -u); do
+    case "$admin" in
+      127.*|::1|localhost) ;;
+      *) remote="Y" ;;
+    esac
+
     ufw allow log from "$admin" to any port "$SSH_PORT" proto tcp
   done
+
+  if [[ "$remote" == "N" ]]; then
+    echo "Warning: no remote administrator address is allowed, rate limiting SSH from any address."
+    ufw limit log "$SSH_PORT/tcp"
+  fi
 
   ufw --force enable
 
